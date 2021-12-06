@@ -1,0 +1,556 @@
+# Pandas, and NumPy: 
+import numpy as np
+import pandas as pd
+from time import time
+import math
+
+# Plotly: 
+import chart_studio.plotly as py
+import plotly as ply
+import plotly.graph_objs as go
+from plotly import tools
+import csv
+#import folium
+from urllib2 import urlopen
+import matplotlib.pyplot as pl
+import matplotlib.patches as mpatches
+
+# sklearn: 
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import make_scorer
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import fbeta_score
+from sklearn.metrics import accuracy_score
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
+
+import colorlover as cl
+from IPython.display import HTML
+from IPython.display import display
+
+
+plotly.offline.init_notebook_mode(connected=True)
+pd.options.display.max_columns = None
+bupu = cl.scales['9']['seq']['BuPu']
+HTML( cl.to_html(bupu))
+
+# Load datasets
+# 2016 - 2020
+accidents_data = pd.read_csv("C:\\Users\\PDevulapalli\\Desktop\\Job search\\PwC case study\\Input Data\\dft-road-casualty-statistics-accident-last-5-years - Copy.csv", parse_dates=['date'], date_parser = pd.to_datetime)
+
+display(accidents_data.head())
+accidents_data.info() 
+
+# Load data dictionary CSVs provided - created a csv file with all data dictionary file names
+lookup_mapping = pd.read_csv('C:\\Users\\PDevulapalli\\Desktop\\Job search\\PwC case study\\Input Data\\lookup_mapping.csv', header=None, index_col=0, squeeze=True).to_dict()
+lookup_mapping
+
+# for all features, (-1) represent a missing data point,it will be replaced to NaN
+accidents_data.replace(-1, 'NaN', inplace=True)
+
+# Iterate through the lookup list to load the necessary file for each variable and update values accordingly
+def update_lookup_value (df, col): 
+    value = lookup_mapping.get(col, -1)
+    if (value != -1): 
+        lookup_data = pd.read_csv('C:\\Users\\PDevulapalli\\Desktop\\Job search\\PwC case study\\contextCSVs (accidents)\\'+value, header=None, index_col=0, squeeze=True).to_dict()
+        df[col] = df[col].astype(str).map(lookup_data)
+
+
+# map coded features to string: 
+for col in accidents_data:
+    update_lookup_value(accidents_data, col)
+
+# Few files didn't load properly due to manual creation of lookup table, rerunning them
+lookup_mapping_new = pd.read_csv('C:\\Users\\PDevulapalli\\Desktop\\Job search\\PwC case study\\Input Data\\lookup_mapping_new.csv', header=None, index_col=0, squeeze=True).to_dict()
+lookup_mapping_new
+
+# redoing 3 columns that didnt load properly
+def update_lookup_value (df, col): 
+    value = lookup_mapping_new.get(col, -1)
+    if (value != -1): 
+        lookup_data = pd.read_csv('C:\\Users\\PDevulapalli\\Desktop\\Job search\\PwC case study\\Data Dict\\'+value, header=None, index_col=0, squeeze=True).to_dict()
+        df[col] = df[col].astype(str).map(lookup_data)
+  
+ for col in accidents_data:
+    update_lookup_value(accidents_data, col)
+    
+  display(accidents_data.head())
+  
+ # time series features
+accidents_data['Month_number'] = accidents_data.date.dt.month
+accidents_data['Month'] = accidents_data.date.dt.month_name()
+accidents_data['Hour'] = accidents_data.apply(lambda x: str(x.time).split(':')[0], axis=1)
+
+accidents_data.isnull().sum(axis = 0)
+#Juntion Control has ~43% data as nulls
+
+#Dropping junction control to ensure data quality for analysis
+accidents_data.drop(["junction_control"], axis=1, inplace=True)
+accidents_data.shape
+
+#Severity of accidents over the last 5 years?
+x = accidents_data.accident_severity.groupby([accidents_data.accident_year]).count().index
+
+trace_3 = go.Bar(
+            x=x,
+            y=accidents_data[accidents_data.accident_severity == 'Fatal'].accident_severity.groupby([accidents_data.accident_year]).count(),
+            name='Fatal',
+            marker=dict(
+            color=bupu[8]))
+
+trace_2 = go.Bar(
+            x=x,
+            y=accidents_data[accidents_data.accident_severity == 'Serious'].accident_severity.groupby([accidents_data.accident_year]).count(),
+            name='Serious',
+            marker=dict(
+            color=bupu[4]))
+
+trace_1 = go.Bar(
+            x=x,
+            y=accidents_data[accidents_data.accident_severity == 'Slight'].accident_severity.groupby([accidents_data.accident_year]).count(),
+            name='Slight',
+            marker=dict(
+            color=bupu[3]))
+
+trace_4 = go.Scatter(
+    x = x,
+    y = accidents_data.accident_severity.groupby([accidents_data.accident_year]).count(), 
+    name = 'Total per year', 
+    mode = 'lines',
+    legendgroup= 'group2', 
+    marker=dict(
+            color=bupu[6])
+)
+
+layout = go.Layout(title="Accidents Severity Per Year", 
+                        barmode='group', 
+                        xaxis = dict(ticks='', nticks=24, 
+                                    title=go.layout.xaxis.Title(
+                                    text='Year')),
+                        yaxis = dict(title=go.layout.yaxis.Title(
+                                    text='Count')))
+
+fig = go.Figure(data=[trace_1, trace_2, trace_3, trace_4], layout=layout)
+
+import plotly.offline as pyo
+import plotly.graph_objs as go
+# Set notebook mode to work in offline
+pyo.init_notebook_mode()
+
+pyo.iplot(fig, filename='Accidents_Severity_Per_Year')
+
+# accidents_data_month: 
+
+accidents_data_month = accidents_data.groupby('date')['Month'].count().reset_index()
+accidents_data_month = accidents_data_month.set_index('date')
+accidents_data_month = accidents_data_month['Month'].resample('MS').sum()
+
+accidents_data_month_fatal = accidents_data[accidents_data.accident_severity == 'Fatal'].groupby('date')['Month'].count().reset_index()
+accidents_data_month_fatal = accidents_data_month_fatal.set_index('date')
+accidents_data_month_fatal = accidents_data_month_fatal['Month'].resample('MS').sum()
+
+accidents_data_month_serious = accidents_data[accidents_data.accident_severity == 'Serious'].groupby('date')['Month'].count().reset_index()
+accidents_data_month_serious = accidents_data_month_serious.set_index('date')
+accidents_data_month_serious = accidents_data_month_serious['Month'].resample('MS').sum()
+
+accidents_data_month_slight = accidents_data[accidents_data.accident_severity == 'Slight'].groupby('date')['Month'].count().reset_index()
+accidents_data_month_slight = accidents_data_month_slight.set_index('date')
+accidents_data_month_slight = accidents_data_month_slight['Month'].resample('MS').sum()
+
+trace_1 = go.Scatter(x=accidents_data_month_fatal.index, 
+                     y=accidents_data_month_fatal, 
+                     name='Fatal', 
+                     mode='lines',
+                    marker=dict(
+                    color=bupu[4]))
+
+trace_2 = go.Scatter(x=accidents_data_month_serious.index, 
+                     y=accidents_data_month_serious, 
+                     name='Serious', 
+                     mode='lines',
+                    marker=dict(
+                    color=bupu[3]))
+
+trace_3 = go.Scatter(x=accidents_data_month_slight.index, 
+                     y=accidents_data_month_slight, 
+                     name='Slight', 
+                     mode='lines',
+                    marker=dict(
+                    color=bupu[2]))
+
+trace_4 = go.Scatter(x=accidents_data_month.index, 
+                     y=accidents_data_month, 
+                     name='Total', 
+                     mode='lines+markers',
+                    marker=dict(
+                    color=bupu[7]))
+
+layout = go.Layout(title="Accidents Trends Per Months", 
+                        barmode='overlay', 
+                        xaxis = dict(ticks='', nticks=48, 
+                                    title=go.layout.xaxis.Title(
+                                    text='Date')),
+                        yaxis = dict(title=go.layout.yaxis.Title(
+                                    text='Count')))
+
+
+fig = go.Figure(data=[trace_1,trace_2, trace_3, trace_4], layout=layout)
+pyo.iplot(fig, filename='Accidents_Trends_Per_Months')
+
+# accident_table_heat: 
+
+accident_table_heat = accidents_data.Hour.groupby([accidents_data.day_of_week, accidents_data.Hour]).count()
+accident_table_heat = accident_table_heat.rename_axis(['Hour', 'Day_of_Week']).unstack('Day_of_Week')
+day_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+accident_table_heat = accident_table_heat.reindex(day_of_week)
+
+color_scale = [[0.0, 'rgb(247,252,253)'], 
+               [0.1111111111111111, 'rgb(224,236,244)'], 
+               [0.2222222222222222, 'rgb(224,236,244)'], 
+               [0.3333333333333333, 'rgb(191,211,230)'], 
+               [0.4444444444444444, 'rgb(158,188,218)'], 
+               [0.5555555555555556, 'rgb(140,150,198)'], 
+               [0.6666666666666666, 'rgb(140,107,177)'], 
+               [0.7777777777777778, 'rgb(136,65,157)'], 
+               [0.8888888888888888, 'rgb(129,15,124)'], 
+               [0.9999999999999999, 'rgb(69,117,180)'], 
+               [1.0, 'rgb(77,0,75)']]
+
+data = [go.Heatmap(
+        z=accident_table_heat,
+        x=accident_table_heat.columns,
+        y=accident_table_heat.index,
+        colorscale= color_scale)]
+
+layout = go.Layout(
+    title='Accidents Per Day/Hour',
+    xaxis = dict(ticks='', nticks=36, title='Hour (24)'),
+    yaxis = dict(ticks='', title='Day')
+)
+
+fig = go.Figure(data=data, layout=layout)
+pyo.iplot(fig, filename='Accidents Per Day-Hour')
+
+#Circumstances where accidents happen 
+accidents_by_speed = accidents_data.speed_limit.groupby([accidents_data.speed_limit]).count().sort_index()
+trace_1 = go.Bar(
+            x=accidents_by_speed.index,
+            y=accidents_by_speed, 
+            name= 'Speed Limit', 
+            marker=dict(
+             color = bupu[1:]))
+
+# accidents_by_Road_Type:  
+accidents_by_road = accidents_data.road_type.groupby([accidents_data.road_type]).count().sort_values()
+trace_2 = go.Bar(
+            x=accidents_by_road.index,
+            y=accidents_by_road,
+            name= 'Road Type', 
+            marker=dict(
+             color = bupu[1:]))
+
+# accidents_by_urban_or_rural:  
+accidents_by_urban = accidents_data.urban_or_rural_area.groupby([accidents_data.urban_or_rural_area]).count().sort_values()
+trace_3 = go.Bar(
+            x=accidents_by_urban.index,
+            y=accidents_by_urban, 
+            name= 'Urban or Rural_Area', 
+            marker=dict(
+             color = bupu[1:]))
+
+# accidents_by_Road_Class:  
+accidents_by_road_class = accidents_data.first_road_class.groupby([accidents_data.first_road_class]).count().sort_values()
+trace_4 = go.Bar(
+            x=accidents_by_road_class.index,
+            y=accidents_by_road_class,
+            name='Road Class', 
+            marker=dict(
+             color = bupu[1:]))
+
+# accidents_by_junction:  
+accidents_by_junction = accidents_data.junction_detail.groupby([accidents_data.junction_detail]).count().sort_values()
+trace_5 = go.Bar(
+            x=accidents_by_junction.index,
+            y=accidents_by_junction, 
+            name= 'Junction Detail', 
+            marker=dict(
+             color = bupu[1:]))
+
+# accidents_by_light:  
+accidents_by_light = accidents_data.light_conditions.groupby([accidents_data.light_conditions]).count().sort_values()
+trace_6 = go.Bar(
+            x=accidents_by_light.index,
+            y=accidents_by_light, 
+            name= 'Light Conditions', 
+            marker=dict(
+             color = bupu[1:]))
+
+subplot_titles = ('Speed Limit', 'Road Type','Urban or Rural_Area', 'Road Class','Junction Detail','Light Conditions')
+fig = tools.make_subplots(rows=1, cols=6, subplot_titles=subplot_titles)
+
+fig.append_trace(trace_1, 1, 1)
+fig.append_trace(trace_2, 1, 2)
+fig.append_trace(trace_3, 1, 3)
+fig.append_trace(trace_4, 1, 4)
+fig.append_trace(trace_5, 1, 5)
+fig.append_trace(trace_6, 1, 6)
+
+layout = go.Layout(
+    #width=500,
+    #height=700,
+    title='Accidents Characteristics',
+    xaxis = dict(ticks='', nticks=36, automargin=True),
+    yaxis = dict(ticks='', automargin=True), 
+    font=dict(size=10), showlegend=False
+)
+
+fig['layout'].update(layout)
+pyo.iplot(fig, filename='Accidents Characteristics_1')
+
+accidents_data_categorical = ['speed_limit', 'junction_detail', 'light_conditions', 'road_type',
+                              'urban_or_rural_area', 'accident_severity', 'first_road_class', 
+                              'pedestrian_crossing_human_control', 'pedestrian_crossing_physical_facilities', 'police_force',
+                             'Month', 'local_authority_highway', 'local_authority_district', 'day_of_week', 'Hour']
+                             
+#What are main factors causing accidents and can we predict severity based on these factors
+accidents_data.isnull().sum(axis = 0)
+
+# split data to fit in suprvised ML algorithm 
+data = accidents_data.copy()
+severity_raw = data['accident_severity']
+features_raw = data.drop('accident_severity', axis = 1)
+
+# map severity to code: 
+severity = severity_raw.map({'Slight':0, 'Serious':1, 'Fatal':2})
+
+# identify categorical feature to get dummay variables: 
+categorical = accidents_data_categorical
+categorical.remove('accident_severity')
+
+features_raw.columns
+
+features_final = pd.get_dummies(features_raw, columns = categorical, drop_first=True)
+
+# Print the number of features after one-hot encoding
+encoded = list(features_final.columns)
+print("{} total features after one-hot encoding.".format(len(encoded)))
+
+features_final.columns
+
+features_final = features_final.drop(['accident_index', 'did_police_officer_attend_scene_of_accident','accident_reference','location_easting_osgr','location_northing_osgr' ,'date', 'time', 'longitude', 'latitude', 'second_road_number', 'second_road_class','first_road_number','number_of_casualties', 'number_of_vehicles', 'Month_number', 'accident_year','lsoa_of_accident_location','local_authority_ons_district','weather_conditions', 'road_surface_conditions',
+       'special_conditions_at_site', 'carriageway_hazards','trunk_road_flag'], axis = 1)
+
+# Print the number of features after dropping columns
+encoded = list(features_final.columns)
+print("{} total features after dropping columns.".format(len(encoded)))
+
+features_final = features_final.astype(np.float64)
+display(features_final.head())
+
+# sanity check for null values 
+features_final.isnull().sum(axis = 0)
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(features_final, 
+                                                    severity, 
+                                                    test_size = 0.2, 
+                                                    random_state = 0)
+
+# Show the results of the split
+print("Training set has {} samples.".format(X_train.shape[0]))
+print("Testing set has {} samples.".format(X_test.shape[0]))
+
+# TODO: Import two metrics from sklearn - fbeta_score and accuracy_score 
+def train_predict(learner, sample_size, X_train, y_train, X_test, y_test): 
+    '''
+    inputs:
+       - learner: the learning algorithm to be trained and predicted on
+       - sample_size: the size of samples (number) to be drawn from training set
+       - X_train: features training set
+       - y_train: income training set
+       - X_test: features testing set
+       - y_test: income testing set
+    '''
+    
+    results = {}
+    
+    # TODO: Fit the learner to the training data using slicing with 'sample_size' using .fit(training_features[:], training_labels[:])
+    start = time() # Get start time
+    learner = learner.fit(X_train[:sample_size], y_train[:sample_size])
+    end = time() # Get end time
+    
+    # TODO: Calculate the training time  
+    results['train_time'] = end - start
+        
+    # TODO: Get the predictions on the test set(X_test),
+    #       then get predictions on the first 300 training samples(X_train) using .predict()
+    start = time() # Get start time
+    predictions_test = learner.predict(X_test)
+    predictions_train = learner.predict(X_train[:300])
+    end = time() # Get end time
+    
+    # TODO: Calculate the total prediction time
+    results['pred_time'] = end - start
+            
+    # TODO: Compute accuracy on the first 300 training samples which is y_train[:300]
+    results['acc_train'] = accuracy_score(y_train[:300], predictions_train)
+        
+    # TODO: Compute accuracy on test set using accuracy_score()
+    results['acc_test'] = accuracy_score(y_test, predictions_test)
+    
+    # TODO: Compute F-score on the the first 300 training samples using fbeta_score()
+    results['f_train'] = fbeta_score(y_train[:300], predictions_train, beta=0.5, average='micro')
+        
+    # TODO: Compute F-score on the test set which is y_test
+    results['f_test'] = fbeta_score(y_test, predictions_test, beta=0.5, average='micro')
+       
+    # Success
+    print("{} trained on {} samples.".format(learner.__class__.__name__, sample_size))
+        
+    # Return the results
+    return results
+
+# Initialize the models
+clf_A = DecisionTreeClassifier(random_state=9)
+clf_B = AdaBoostClassifier(random_state=9)
+clf_C = GradientBoostingClassifier(random_state=9)
+clf_D = RandomForestClassifier(random_state=9)
+
+# TODO: Calculate the number of samples for 1%, 10%, and 100% of the training data
+# HINT: samples_100 is the entire training set i.e. len(y_train)
+# HINT: samples_10 is 10% of samples_100 (ensure to set the count of the values to be `int` and not `float`)
+# HINT: samples_1 is 1% of samples_100 (ensure to set the count of the values to be `int` and not `float`)
+
+samples_100 = len(y_train)
+samples_10 = int(samples_100 * 0.10)
+samples_1 = int (samples_100 * 0.01)
+
+# Collect results on the learners
+results = {}
+for clf in [clf_A, clf_B, clf_C,clf_D]:
+    clf_name = clf.__class__.__name__
+    results[clf_name] = {}
+    for i, samples in enumerate([samples_1, samples_10, samples_100]):
+        results[clf_name][i] = \
+        train_predict(clf, samples, X_train, y_train, X_test, y_test)
+        
+results['DecisionTreeClassifier']
+results['AdaBoostClassifier']
+results['GradientBoostingClassifier']
+results['RandomForestClassifier']
+
+clf_D
+
+def evaluate(results):
+    """
+    Visualization code to display results of various learners.
+    
+    inputs:
+      - learners: a list of supervised learners
+      - stats: a list of dictionaries of the statistic results from 'train_predict()'
+      - accuracy: The score for the naive predictor
+      - f1: The score for the naive predictor
+    """
+  
+    subplot_titles = ('train_time', 'acc_train', 'f_train', 'pred_time', 'acc_test', 'f_test')
+    fig = tools.make_subplots(rows=2, cols=3, subplot_titles=subplot_titles)
+    result_df = pd.DataFrame.from_dict(results)
+    bupu_sub = bupu[3:]
+    x = result_df.index.tolist()
+
+    for j, metric in enumerate(['train_time', 'acc_train', 'f_train', 'pred_time', 'acc_test', 'f_test']):
+        i = j+3
+        showlegend = True
+        for ix, col in enumerate(result_df.columns):
+            y_data = []
+            for z, row in result_df.iterrows():
+                y_data.append(row[col][metric])
+            fig.append_trace(go.Bar(x=x, y=y_data, marker=dict(color=bupu_sub[ix]),name=col,showlegend= showlegend), i//3, j%3+1)
+
+
+    layout = go.Layout(
+    title='Model Result',
+    xaxis = dict(ticks='', nticks=36, automargin=True),
+    yaxis = dict(ticks='', automargin=True), 
+    font=dict(size=10),
+    showlegend=False)
+    
+    fig['layout'].update(layout)
+
+    plotly.offline.iplot(fig)
+    pyo.iplot(fig, filename='Model Evaluation Result')
+ 
+ def feature_plot(importances, X_train, y_train):
+
+    # TODO: Extract the feature importances using .feature_importances_ 
+    indices = np.argsort(importances)[::-1]
+    columns = X_train.columns.values[indices[:20]]
+    values = importances[indices][:20]
+    cumulative_weight = np.cumsum(values)
+
+    trace_1 = go.Bar(
+                x=columns,
+                y=values,
+                name='Feature Weight',
+                marker=dict(
+                color=bupu[3]))
+
+    trace_2 = go.Scatter(
+        x = columns,
+        y = cumulative_weight, 
+        name = 'Cumulative Weight', 
+        mode = 'lines',
+        legendgroup= 'group2', 
+        marker=dict(
+                color=bupu[6])
+    )
+
+    layout = go.Layout(title="Model Feature Importances", 
+                            barmode='group', 
+                            xaxis = dict(ticks='', nticks=24, 
+                                        title=go.layout.xaxis.Title(
+                                        text='Feature'), automargin=True),
+                            yaxis = dict(title=go.layout.yaxis.Title(
+                                        text=''), automargin=True))
+
+    fig = go.Figure(data=[trace_1, trace_2], layout=layout)
+    pyo.iplot(fig, filename='Model Feature Importances')
+    plotly.offline.iplot(fig)
+   
+   evaluate(results)
+   
+   # TODO: Import a supervised learning model that has 'feature_importances_'
+best_clf = RandomForestClassifier(criterion='gini', 
+                             max_depth=15, 
+                             max_features='auto', 
+                             min_samples_split=100, 
+                             n_estimators=50, 
+                             random_state=9)
+
+clf = clf_D
+# Get the estimator
+best_clf = best_clf.fit(X_train, y_train)
+print (best_clf)
+# Make predictions using the unoptimized and model
+predictions = (clf.fit(X_train, y_train)).predict(X_test)
+best_predictions = best_clf.predict(X_test)
+
+
+# Report the before-and-afterscores
+print("Unoptimized model\n------")
+print("Accuracy score on testing data: {:.4f}".format(accuracy_score(y_test, predictions)))
+print("F-score on testing data: {:.4f}".format(fbeta_score(y_test, predictions, beta = 0.5, average='micro')))
+print("\nOptimized Model\n------")
+print("Final accuracy score on the testing data: {:.4f}".format(accuracy_score(y_test, best_predictions)))
+print("Final F-score on the testing data: {:.4f}".format(fbeta_score(y_test, best_predictions, beta = 0.5, average='micro')))
+
+# TODO: Train the supervised model on the training set using .fit(X_train, y_train)
+model = best_clf
+
+# TODO: Extract the feature importances using .feature_importances_ 
+importances = model.feature_importances_ 
+
+# Plot
+feature_plot(importances, X_train, y_train)
